@@ -13,16 +13,23 @@ import numpy as np
 app = FastAPI()
 
 # CORS configuration
+# CORS configuration - FIXED
 origins = [
-    "https://skinburn-detect.vercel.app",  # URL frontend kamu di Vercel
+    "https://skinburn-detect.vercel.app",
+    # Optional: Add these for local development
+    "http://localhost:5173",
 ]
 
+# Apply CORS middleware with explicit configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,              # Ubah ini dari ["*"] jadi explicit
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Add these two parameters for better CORS handling
+    expose_headers=["*"],
+    max_age=600,  # Cache preflight requests for 10 minutes
 )
 
 # Folder upload dan static
