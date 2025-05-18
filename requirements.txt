@@ -1,7 +1,7 @@
 fastapi
 uvicorn
 pillow
-numpy
+numpy<2.0
 opencv-python-headless
 ultralytics
 python-multipart
