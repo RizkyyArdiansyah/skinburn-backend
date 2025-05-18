@@ -1,0 +1,11 @@
+
+yolo_service/best.pt
+__pycache__/
+*.pyc
+.env
+venv/
+env/
+.venv/
+.DS_Store
+.git/
+static/uploads/
