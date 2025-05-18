@@ -33,8 +33,5 @@ else
 fi
 
 
-# Pastikan aplikasi berada di direktori yang benar
-cd /app
-
 # Jalankan aplikasi dengan port yang benar
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000
