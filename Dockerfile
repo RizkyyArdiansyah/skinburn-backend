@@ -35,6 +35,12 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy kode aplikasi saja (tanpa best.pt)
 COPY app/ /app/
-COPY start.sh /app/
-RUN chmod +x /app/start.sh
 
+# Copy start.sh script
+COPY start.sh .
+RUN chmod +x start.sh
+
+EXPOSE 8000
+
+# Jalankan script startup yang akan download model jika diperlukan
+CMD ["./start.sh"]
