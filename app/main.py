@@ -13,9 +13,13 @@ import numpy as np
 app = FastAPI()
 
 # CORS configuration
+origins = [
+    "https://skinburn-detect.vercel.app",  # URL frontend kamu di Vercel
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["https://skinburn-detect.vercel.app/"], 
+    allow_origins=origins,              # Ubah ini dari ["*"] jadi explicit
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
