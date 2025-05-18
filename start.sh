@@ -15,5 +15,8 @@ if [ ! -f "$MODEL_PATH" ]; then
     # gdown --id $FILEID -O "$MODEL_PATH"
 fi
 
-# Jalankan aplikasi
-exec uvicorn main:app --host 0.0.0.0 --port 8000
+PORT="${PORT:-8000}"
+echo "Starting FastAPI application on port $PORT..."
+
+# Jalankan aplikasi dengan port yang benar
+exec uvicorn main:app --host 0.0.0.0 --port $PORT
