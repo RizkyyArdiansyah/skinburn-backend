@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,15 +9,23 @@ import os
 import uuid
 import cv2
 import numpy as np
+import logging
+import traceback
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
-# CORS configuration
-# CORS configuration - FIXED
+# CORS configuration - Expanded with more potential origins
 origins = [
     "https://skinburn-detect.vercel.app",
-    # Optional: Add these for local development
+    "https://www.skinburn-detect.vercel.app",
+    "https://skinburn-detect-git-main.vercel.app",
+    "https://skinburn-detect-*.vercel.app",  # Wildcard for preview deployments
     "http://localhost:5173",
+    "http://localhost:3000",
 ]
 
 # Apply CORS middleware with explicit configuration
@@ -25,27 +33,56 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
-    # Add these two parameters for better CORS handling
     expose_headers=["*"],
     max_age=600,  # Cache preflight requests for 10 minutes
 )
 
-# Folder upload dan static
+# Folder upload dan static - Ensure this exists
 UPLOAD_DIR = "static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+# Mount static directory
+try:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    logger.info("Successfully mounted static directory")
+except Exception as e:
+    logger.error(f"Failed to mount static directory: {str(e)}")
 
-# Load YOLO model
-model = YOLO("yolo_service/best.pt")  # Pastikan model ini mendukung segmentasi
+# Load YOLO model with error handling
+model = None
+try:
+    model_path = "yolo_service/best.pt"
+    if not os.path.exists(model_path):
+        logger.error(f"Model file not found at {model_path}")
+        raise FileNotFoundError(f"Model file not found at {model_path}")
+    
+    model = YOLO(model_path)
+    logger.info("YOLO model loaded successfully")
+except Exception as e:
+    logger.error(f"Failed to load YOLO model: {str(e)}")
+    # We'll check if model is None before processing
 
 @app.post("/predict")
 async def predict(file: UploadFile = File(...)):
     try:
+        # Check if model is loaded
+        if model is None:
+            logger.error("Model not loaded, cannot process request")
+            raise HTTPException(status_code=503, detail="Model not loaded, try again later")
+        
+        # Validate file type
+        if not file.content_type.startswith('image/'):
+            logger.warning(f"Invalid file type: {file.content_type}")
+            raise HTTPException(status_code=400, detail="Only image files are allowed")
+        
         # Baca file gambar dari upload
         contents = await file.read()
+        if len(contents) == 0:
+            raise HTTPException(status_code=400, detail="Empty image file")
+            
+        # Process image
         image = Image.open(io.BytesIO(contents)).convert("RGB")
 
         # Konversi PIL ke numpy BGR (OpenCV)
@@ -131,11 +168,16 @@ async def predict(file: UploadFile = File(...)):
         filepath_result = os.path.join(UPLOAD_DIR, f"result_{filename}")
 
         # Simpan gambar asli
-        with open(filepath_original, "wb") as f:
-            f.write(contents)
-
-        # Simpan gambar hasil dengan segmentation mask
-        cv2.imwrite(filepath_result, img_result)
+        try:
+            with open(filepath_original, "wb") as f:
+                f.write(contents)
+            
+            # Simpan gambar hasil dengan segmentation mask
+            cv2.imwrite(filepath_result, img_result)
+            logger.info(f"Saved images to {filepath_original} and {filepath_result}")
+        except Exception as e:
+            logger.error(f"Failed to save images: {str(e)}")
+            # Continue processing even if saving fails
 
         # Parsing hasil deteksi ke JSON
         detections = []
@@ -188,22 +230,48 @@ async def predict(file: UploadFile = File(...)):
                     "bbox": bbox
                 })
 
+        # Create response with absolute URLs
+        base_url = os.getenv("BASE_URL", "")  # Get from environment or default to empty
+        
         return JSONResponse({
             "detections": detections,
-            "original_image": f"/static/uploads/{filename}",
-            "result_image": f"/static/uploads/result_{filename}"
+            "original_image": f"{base_url}/static/uploads/{filename}",
+            "result_image": f"{base_url}/static/uploads/result_{filename}"
         })
 
+    except HTTPException as he:
+        # Re-raise HTTP exceptions
+        raise he
     except Exception as e:
-        import traceback
+        # Log the error
+        logger.error(f"Prediction error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
+        # Return a sanitized error response in production
         return JSONResponse(
             status_code=500,
             content={
-                "error": str(e),
-                "traceback": traceback.format_exc()
+                "error": "Internal server error during prediction",
+                "message": str(e),
+                # Only include traceback in non-production environments
+                "traceback": traceback.format_exc() if os.getenv("ENVIRONMENT") != "production" else None
             }
         )
 
 @app.get("/")
 async def root():
     return {"message": "API untuk deteksi dan segmentasi luka bakar aktif"}
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for monitoring"""
+    health_status = {
+        "status": "healthy" if model is not None else "degraded",
+        "model_loaded": model is not None,
+        "static_dir_exists": os.path.exists("static"),
+        "upload_dir_exists": os.path.exists(UPLOAD_DIR),
+    }
+    
+    if model is None:
+        return JSONResponse(status_code=503, content=health_status)
+    return health_status
