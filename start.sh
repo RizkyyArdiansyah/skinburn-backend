@@ -32,12 +32,9 @@ else
     echo "Model already exists, skipping download."
 fi
 
-# Set port dari variabel lingkungan atau default ke 8000
-PORT="${PORT:-8000}"
-echo "Starting FastAPI application on port $PORT..."
 
 # Pastikan aplikasi berada di direktori yang benar
 cd /app
 
 # Jalankan aplikasi dengan port yang benar
-exec uvicorn main:app --host 0.0.0.0 --port $PORT --workers 1
+exec uvicorn app.main:app --host 0.0.0.0 --port 8000
