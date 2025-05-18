@@ -1,7 +1,8 @@
-from fastapi import FastAPI, File, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, File, UploadFile, Request
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 from ultralytics import YOLO
 from PIL import Image
 import io
@@ -10,14 +11,30 @@ import uuid
 import cv2
 import numpy as np
 
+# Custom CORS middleware untuk memastikan header selalu ditambahkan
+class CORSHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        
+        # Force add CORS headers to every response
+        response.headers["Access-Control-Allow-Origin"] = "https://skinburn-detect.vercel.app"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+        
+        return response
+
 app = FastAPI()
 
-# CORS configuration
-# CORS configuration - FIXED
+# Tambahkan custom CORS middleware terlebih dahulu
+app.add_middleware(CORSHeaderMiddleware)
+
+# CORS configuration standar
 origins = [
     "https://skinburn-detect.vercel.app",
-    # Optional: Add these for local development
     "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:8000",
 ]
 
 # Apply CORS middleware with explicit configuration
@@ -27,7 +44,6 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    # Add these two parameters for better CORS handling
     expose_headers=["*"],
     max_age=600,  # Cache preflight requests for 10 minutes
 )
@@ -37,6 +53,17 @@ UPLOAD_DIR = "static/uploads"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Tambahkan handler OPTIONS eksplisit untuk semua endpoint
+@app.options("/{path:path}")
+async def options_handler(request: Request, path: str):
+    """Handle all OPTIONS requests explicitly"""
+    response = Response()
+    response.headers["Access-Control-Allow-Origin"] = "https://skinburn-detect.vercel.app"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    return response
 
 # Load YOLO model
 model = YOLO("yolo_service/best.pt")  # Pastikan model ini mendukung segmentasi
@@ -188,22 +215,46 @@ async def predict(file: UploadFile = File(...)):
                     "bbox": bbox
                 })
 
-        return JSONResponse({
+        # Buat respons dengan header CORS yang diset secara manual
+        response = JSONResponse({
             "detections": detections,
             "original_image": f"/static/uploads/{filename}",
             "result_image": f"/static/uploads/result_{filename}"
         })
+        
+        # Tambahkan header CORS secara eksplisit ke response ini
+        response.headers["Access-Control-Allow-Origin"] = "https://skinburn-detect.vercel.app"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
 
     except Exception as e:
         import traceback
-        return JSONResponse(
+        response = JSONResponse(
             status_code=500,
             content={
                 "error": str(e),
                 "traceback": traceback.format_exc()
             }
         )
+        
+        # Tambahkan header CORS juga ke response error
+        response.headers["Access-Control-Allow-Origin"] = "https://skinburn-detect.vercel.app"
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+        
+        return response
 
 @app.get("/")
 async def root():
-    return {"message": "API untuk deteksi dan segmentasi luka bakar aktif"}
+    response = JSONResponse({"message": "API untuk deteksi dan segmentasi luka bakar aktif"})
+    
+    # Tambahkan header CORS ke response root
+    response.headers["Access-Control-Allow-Origin"] = "https://skinburn-detect.vercel.app"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    return response
+
+# Start server if running directly
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
